@@ -1,0 +1,142 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org/DTD Mapper 3.0//EN"
+		"http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+		
+<mapper namespace="com.pirate.demo.mapper.StoreMapper">
+	
+	<resultMap type="com.pirate.demo.dto.StoreForDetail" id="storeDetailMap">
+		<result property="name" column="name" />
+		<result property="owner" column="owner" />
+		<result property="description" column="description" />
+		<result property="level" column="level" />
+		<result property="address" column="address" />
+		<result property="phone" column="phone" />
+		<collection property="businessTimes" resultMap="businessTimesMap">
+		</collection>
+	</resultMap>
+
+
+
+	<resultMap type="com.pirate.demo.dto.BusinessDays" id="businessTimesMap">
+		<result property="day" column="day" />
+		<result property="open" column="open" />
+		<result property="close" column="close" />
+		<result property="status" column="status" />
+	</resultMap>
+	
+	
+	<insert id="addStore">
+		insert into stores(name, owner, description, level, address, phone)  
+			values(#{name}, #{owner}, #{description}, #{level}, #{address}, #{phone})
+		<selectKey resultType="int" keyProperty="id" order="AFTER">
+        	SELECT LAST_INSERT_ID()
+    	</selectKey>   
+	</insert>
+	
+	<insert id="addBusinessDays" parameterType="java.util.List">
+		INSERT INTO businessDays(
+		 id,
+		 day,
+		 open,
+		 close) 
+		 VALUES 
+		<foreach collection="list" item="item" separator=",">
+		(
+		 #{item.id},
+		 #{item.day},
+		 #{item.open},
+		 #{item.close}
+		)
+		</foreach>
+	</insert>
+	
+	<insert id="addHolidays" parameterType="hashmap">
+		INSERT INTO holidays(
+		 id,
+		 holidays
+		 ) 
+		 VALUES
+		<foreach collection="holidayList" item="item" separator=",">
+		 (
+		  #{id},
+		  #{item}
+		 )
+		</foreach>
+	</insert>
+	
+	<!-- 점포 리스트 -->
+	<select id="getStoreLists" resultType="com.pirate.demo.dto.StoreLists">
+		<![CDATA[
+			select name, description, level, 
+				case 
+					when holidays is not null then 'HOLIDAY' 
+					when open > close and ((open <= curtime() and FORMATDATETIME(PARSEDATETIME('23:59:59','HH:mm:ss'),'HH:mm:ss') >= curtime()) or (FORMATDATETIME(PARSEDATETIME('00:00','HH:mm'),'HH:mm') < curtime() and close > curtime())) then 'OPEN'
+					when open < close and open <= curtime() and close > curtime() then 'OPEN'
+					else 'CLOSE'
+					end as businessStatus from stores s 
+			left outer join businessDays b on s.id = b.id and b.day = dayname(NOW())
+			left outer join holidays h on s.id = h.id and h.holidays = DATE(NOW())
+			order by level
+		]]>
+	</select>
+
+	
+	<!-- 점포 상세 조회 오늘  -->
+	<select id="getStoreDetail" parameterType="int" resultMap="storeDetailMap">
+		<![CDATA[
+			select name, owner, description, level, address, phone, 
+				case when count(day) > 0 then day else concat(dayname(now()), ' (영업일이 아닙니다)') end as day, 
+				case when count(open) > 0 then open else '00:00' end as open,
+				case when count(close) > 0 then close else '00:00' end as close,
+				case 
+					when (select count(*) from holidays where id = #{id} and date(NOW()) = holidays) > 0 then 'HOLIDAY'
+					when (select count(*) from businessDays where id = #{id} and day = dayname(now())) > 0 
+						 and (open > close and ((open <= curtime() and FORMATDATETIME(PARSEDATETIME('23:59:59','HH:mm:ss'),'HH:mm:ss') >= curtime()) or (FORMATDATETIME(PARSEDATETIME('00:00','HH:mm'),'HH:mm') < curtime() and close > curtime()))) then 'OPEN'
+					when (select count(*) from businessDays where id = #{id} and day = dayname(now())) > 0
+						 and (open < close and open <= curtime() and close > curtime()) then 'OPEN'
+					else 'CLOSE'
+				end as status
+			from stores s left outer join businessDays b on s.id = b.id left outer join holidays h on b.id = h.id and date(NOW()) = holidays 
+			where b.id = #{id} and b.day = dayname(now())
+		]]>
+	</select>
+	
+	<!-- 점포 상세 조회 내일  -->
+	<select id="getStoreDetailTomorrow" parameterType="int" resultMap="businessTimesMap">
+		<![CDATA[
+			select
+				case when count(day) > 0 then day else concat(dayname(dateadd('day',1,now())), ' (영업일이 아닙니다)') end as day,
+				case when count(open) > 0 then open else '00:00' end as open,
+				case when count(close) > 0 then close else '00:00' end as close,
+				case 
+					when (select count(*) from holidays where id = #{id} and date(dateadd('day',1,now())) = holidays) > 0 then 'HOLIDAY'
+					when (select count(*) from businessDays where id = #{id} and day = dayname(dateadd('day',1,now()))) > 0 then 'OPEN'
+					else 'CLOSE'
+				end as status
+			from businessDays b left outer join holidays h on b.id = h.id and date(dateadd('day',1,now())) = holidays 
+			where b.id = #{id} and b.day = dayname(dateadd('day',1,now()))
+		]]>
+	</select>
+	
+	
+	<!-- 점포 상세 조회 모레  -->
+	<select id="getStoreDetailAfterTomorrow" parameterType="int" resultMap="businessTimesMap">
+		<![CDATA[
+			select
+				case when count(day) > 0 then day else concat(dayname(dateadd('day',2,now())), ' (영업일이 아닙니다)') end as day,
+				case when count(open) > 0 then open else '00:00' end as open,
+				case when count(close) > 0 then close else '00:00' end as close,
+				case 
+					when (select count(*) from holidays where id = #{id} and date(dateadd('day',2,now())) = holidays) > 0 then 'HOLIDAY'
+					when (select count(*) from businessDays where id = #{id} and day = dayname(dateadd('day',2,now()))) > 0 then 'OPEN'
+					else 'CLOSE'
+				end as status
+			from businessDays b left outer join holidays h on b.id = h.id and date(dateadd('day',2,now())) = holidays 
+			where b.id = #{id} and b.day = dayname(dateadd('day',2,now()))
+		]]>
+	</select>
+	
+	<insert id="deleteStore">
+		delete from stores where id = #{id}
+	</insert>
+</mapper>
